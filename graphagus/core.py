@@ -25,7 +25,9 @@ class StillConnected(Exception):
     pass
 
 class PObject(Persistent):
-    pass
+    def __init__(self):
+        #pass or something else
+        pass
 
 #for the node catalog
 class Nodegetter():
@@ -83,7 +85,7 @@ class Edge(list):
         return self[3]
 
     def __getattr__(self,key):
-        if self.data.has_key(key):
+        if key in self.data:
             return self.data[key]
         else:
             raise AttributeError
@@ -100,7 +102,7 @@ class Node(dict):
         return 'Node(%s)' % self.ln
 
     def __getattr__(self,key):
-        if self.has_key(key):
+        if key in self:
             return self[key]
         else:
             raise AttributeError
@@ -157,10 +159,10 @@ class GraphDB(Persistent):
 
     @property
     def revtypes(self):
-        if not hasattr(self,'_v_revtypes'):
+        if (not hasattr(self,'_v_revtypes')) or (not bool(self._v_revtypes)):
             dir(self.typeids)
             dir(self.typeids)
-            self._v_revtypes = dict([(v,k) for k,v in self.typeids.__dict__.items()])
+            self._v_revtypes = dict([(v,k) for k,v in list(self.typeids.__dict__.items())])
         return self._v_revtypes
 
     def getType(self,typeid):
@@ -171,12 +173,16 @@ class GraphDB(Persistent):
 
 
     def addNode(self,**kwargs):
-        _id = self.nodeid()
+        if '_id' not in kwargs:
+            _id = self.nodeid()
+        else:
+            _id = kwargs.pop('_id')
         self.nodes[_id]=kwargs
         ln =  self.lightNode(_id,kwargs)
         self.node_catalog.index_doc(_id,ln)
         return ln
     
+
     def lightNode(self,_id,node=None):
         "{'_id':nodeid, ...other attributes...}"
         if node==None:
@@ -240,7 +246,7 @@ class GraphDB(Persistent):
         self.incoming[edgetype][end]=data
 
         del(self.edges[edgeid])
-        if self.edgedata.has_key(edgeid):
+        if edgeid in self.edgedata:
             self.edge_catalog.unindex_doc(edgeid)
             #del(self.edges[edgeid])
 
@@ -250,21 +256,21 @@ class GraphDB(Persistent):
             node=self.lightNode(node)
         nodeid = node['_id']
 
-        for edgetype in self.outgoing.keys():
+        for edgetype in list(self.outgoing.keys()):
             if len(self.outgoing[edgetype].get(nodeid,{}))>0:
                 raise StillConnected('outgoing',self.outgoing[edgetype][nodeid])
 
-        for edgetype in self.incoming.keys():
+        for edgetype in list(self.incoming.keys()):
             if len(self.incoming[edgetype].get(nodeid,{}))>0:
                 raise StillConnected('incoming',self.incoming[edgetype][nodeid])
 
         #all good, lets delete
-        for edgetype in self.outgoing.keys():
-            if self.outgoing[edgetype].has_key(nodeid):
+        for edgetype in list(self.outgoing.keys()):
+            if nodeid in self.outgoing[edgetype]:
                 del(self.outgoing[edgetype][nodeid])
         
-        for edgetype in self.incoming.keys():
-            if self.incoming[edgetype].has_key(nodeid):
+        for edgetype in list(self.incoming.keys()):
+            if nodeid in self.incoming[edgetype]:
                 del(self.incoming[edgetype][nodeid])
 
         self.node_catalog.unindex_doc(nodeid)                
@@ -284,12 +290,12 @@ class GraphDB(Persistent):
         if data:
             self.edgedata[edgeid]=data
             self.edge_catalog.reindex_doc(edgeid,lightedge)            
-        elif self.edgedata.has_key(edgeid):
+        elif edgeid in self.edgedata:
             del(self.edgedata[edgeid])
             self.edge_catalog.unindex_doc(edgeid)
 
     def kwQuery(self,**kwargs):
-        kwitems = kwargs.items()
+        kwitems = list(kwargs.items())
         key,value = kwitems[0]
         query = rc_query.Eq(key,value) 
         for k,v in kwitems[1:]:
@@ -350,15 +356,15 @@ class GraphDB(Persistent):
             result = []
             container = getattr(self,d)
             
-            for edgetype in container.keys():
+            for edgetype in list(container.keys()):
                 if types !=None and edgetype not in types:
                     continue
                 for n in nodeids:
                     edges = container[edgetype].get(n,{})
                     if returnIds:
-                        result.extend(edges.keys())
+                        result.extend(list(edges.keys()))
                     else:
-                        for key in edges.keys():
+                        for key in list(edges.keys()):
                             result.append(self.edge(key))
             out[direction] = result
         if len(directions) == 1:
@@ -379,7 +385,7 @@ class GraphDB(Persistent):
 
         out = []
         targets = self.outgoing.get(edgetype,{}).get(start,{})
-        for edgeid,nodeid in targets.items():
+        for edgeid,nodeid in list(targets.items()):
             if nodeid==end:
                 out.append(self.lightEdge(edgeid))
         return out
@@ -399,16 +405,16 @@ class GraphDB(Persistent):
 
         self._init()
     
-    def render(self,filename='graphagus',source=False):
+    def render(self,filename='graphagus', label='name', source=False):
         from graphviz import Digraph
         
         dot = Digraph('Graphagus dump',format='svg')
         
-        for k in self.nodes.keys():
+        for k in list(self.nodes.keys()):
             n = self.lightNode(k)
-            dot.node(str(k),n['name'])
+            dot.node(str(k),n[label])
         
-        for k in self.edges.keys():
+        for k in list(self.edges.keys()):
             e = self.lightEdge(k)
             dot.edge(str(e[0]),
                      str(e[1]),
@@ -436,14 +442,16 @@ def getGraph(filename=None,graphname='graphdb',storage=None,graphonly=True):
     db = DB(storage)
     connection = db.open()
     root = connection.root()
-    if not root.has_key(graphname):
+    if graphname not in root:
         root[graphname]=GraphDB()
     g = root[graphname]
     g._v_root = root
     g._v_connection = connection
     g._v_db = db
     g._v_storage = storage
-
+    
+    print(g.typeids._p_jar)
+    
     if graphonly:
         return g
     else:
